@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스페이스 인베이더 (Space Invaders)</title>
+    <style>
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 2rem;
+            color: #00ff00;
+            text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+            letter-spacing: 2px;
+        }
+
+        #ui-container {
+            width: 600px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        #game-container {
+            position: relative;
+        }
+
+        canvas {
+            border: 4px solid #333;
+            background-color: #000000;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.1);
+        }
+
+        #overlay-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 600px;
+            height: 500px;
+            background: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 4px solid #333;
+            box-sizing: border-box;
+        }
+
+        #overlay-title {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .game-over-text { color: #ff3333; }
+        .victory-text { color: #33ff33; }
+
+        #restart-btn {
+            padding: 12px 25px;
+            font-size: 1.1rem;
+            font-family: inherit;
+            background-color: #00ff00;
+            color: black;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        #restart-btn:hover {
+            background-color: #00cc00;
+            box-shadow: 0 0 10px #00ff00;
+        }
+
+        #controls-guide {
+            margin-top: 15px;
+            font-size: 0.9rem;
+            color: #888;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SPACE INVADERS</h1>
+    
+    <div id="ui-container">
+        <div>SCORE: <span id="score">0</span></div>
+        <div>STAGE: <span id="stage">1</span></div>
+        <div>LIVES: <span id="lives">3</span></div>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="600" height="500"></canvas>
+        <div id="overlay-screen">
+            <div id="overlay-title">GAME OVER</div>
+            <button id="restart-btn" onclick="resetGame()">PLAY AGAIN</button>
+        </div>
+    </div>
+
+    <div id="controls-guide">
+        [← / →] 또는 [A / D] : 이동 | [Spacebar] : 미사일 발사
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreElement = document.getElementById("score");
+        const stageElement = document.getElementById("stage");
+        const livesElement = document.getElementById("lives");
+        const overlayScreen = document.getElementById("overlay-screen");
+        const overlayTitle = document.getElementById("overlay-title");
+
+        // 게임 설정 시스템
+        let score = 0;
+        let stage = 1;
+        let lives = 3;
+        let isGameOver = false;
+
+        // 플레이어 (우주선)
+        const player = {
+            x: canvas.width / 2 - 20,
+            y: canvas.height - 40,
+            width: 40,
+            height: 20,
+            speed: 6,
+            isMovingLeft: false,
+            isMovingRight: false
+        };
+
+        // 미사일 및 외계인 배열
+        let bullets = [];
+        let invaders = [];
+
+        // 외계인 설정 변수
+        const invaderRows = 4;
+        const invaderCols = 8;
+        const invaderWidth = 35;
+        const invaderHeight = 25;
+        const invaderPadding = 15;
+        const invaderOffsetTop = 50;
+        const invaderOffsetLeft = 50;
+        
+        let invaderDirection = 1; // 1: 오른쪽, -1: 왼쪽
+        let invaderSpeed = 1;
+        let invaderDropDistance = 15;
+
+        // 키보드 이벤트 리스너
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") player.isMovingLeft = true;
+            if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") player.isMovingRight = true;
+            if (e.key === " " || e.code === "Space") {
+                e.preventDefault(); // 스페이스바 브라우저 스크롤 방지
+                fireBullet();
+            }
+        });
+
+        document.addEventListener("keyup", (e) => {
+            if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") player.isMovingLeft = false;
+            if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") player.isMovingRight = false;
+        });
+
+        // 게임 초기화 및 시작
+        initGame();
+
+        function initGame() {
+            score = 0;
+            stage = 1;
+            lives = 3;
+            isGameOver = false;
+            invaderSpeed = 1;
+            
+            scoreElement.innerText = score;
+            stageElement.innerText = stage;
+            livesElement.innerText = lives;
+            overlayScreen.style.display = "none";
+
+            bullets = [];
+            createInvaders();
+            
+            // 루프 재생 중복 방지 후 실행
+            cancelAnimationFrame(gameLoop);
+            requestAnimationFrame(gameLoop);
+        }
+
+        function resetGame() {
+            initGame();
+        }
+
+        // 다음 스테이지 진입
+        function nextStage() {
+            stage++;
+            stageElement.innerText = stage;
+            invaderSpeed = 1 + (stage * 0.3); // 갈수록 빨라짐
+            bullets = [];
+            createInvaders();
+        }
+
+        // 외계인 부대 생성
+        function createInvaders() {
+            invaders = [];
+            for (let r = 0; r < invaderRows; r++) {
+                invaders[r] = [];
+                for (let c = 0; c < invaderCols; c++) {
+                    const invaderX = c * (invaderWidth + invaderPadding) + invaderOffsetLeft;
+                    const invaderY = r * (invaderHeight + invaderPadding) + invaderOffsetTop;
+                    invaders.push({
+                        x: invaderX,
+                        y: invaderY,
+                        width: invaderWidth,
+                        height: invaderHeight,
+                        alive: true,
+                        color: r % 2 === 0 ? "#00ffff" : "#ff00ff" // 행별 네온 컬러 구분
+                    });
+                }
+            }
+            // 2차원 배열 구조 단순화
+            invaders = invaders.filter(i => i.x !== undefined);
+        }
+
+        // 미사일 발사
+        function fireBullet() {
+            if (isGameOver) return;
+            // 화면에 미사일 개수 제한 (연사 밸런스 조절)
+            if (bullets.length < 3) {
+                bullets.push({
+                    x: player.x + player.width / 2 - 2,
+                    y: player.y,
+                    width: 4,
+                    height: 15,
+                    speed: 7
+                });
+            }
+        }
+
+        // 메인 게임 루프
+        function gameLoop() {
+            if (isGameOver) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            updatePlayer();
+            updateBullets();
+            updateInvaders();
+            
+            drawPlayer();
+            drawBullets();
+            drawInvaders();
+
+            checkCollisions();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 플레이어 상태 업데이트
+        function updatePlayer() {
+            if (player.isMovingLeft && player.x > 0) {
+                player.x -= player.speed;
+            }
+            if (player.isMovingRight && player.x < canvas.width - player.width) {
+                player.x += player.speed;
+            }
+        }
+
+        // 미사일 상태 업데이트
+        function updateBullets() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].y -= bullets[i].speed;
+                // 화면 밖으로 나가면 제거
+                if (bullets[i].y < 0) {
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+
+        // 외계인 부대 상태 및 이동 업데이트
+        function updateInvaders() {
+            let hitWall = false;
+
+            invaders.forEach(invader => {
+                if (!invader.alive) return;
+                invader.x += invaderSpeed * invaderDirection;
+
+                // 벽 충돌 감지 체크
+                if (invader.x + invader.width >= canvas.width || invader.x <= 0) {
+                    hitWall = true;
+                }
+
+                // 외계인이 플레이어 기지 라인까지 내려왔을 때 게임 오버
+                if (invader.y + invader.height >= player.y) {
+                    triggerGameOver();
+                }
+            });
+
+            // 벽에 부딪히면 방향을 바꾸고 한 단계 하강
+            if (hitWall) {
+                invaderDirection *= -1;
+                invaders.forEach(invader => {
+                    if (invader.alive) invader.y += invaderDropDistance;
+                });
+            }
+        }
+
+        // 충돌 판정 로직
+        function checkCollisions() {
+            let aliveCount = 0;
+
+            for (let i = 0; i < invaders.length; i++) {
+                const inv = invaders[i];
+                if (!inv.alive) continue;
+                aliveCount++;
+
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const b = bullets[j];
+
+                    // 미사일과 외계인 AABB 충돌 박스 검사
+                    if (b.x > inv.x && b.x < inv.x + inv.width &&
+                        b.y > inv.y && b.y < inv.y + inv.height) {
+                        
+                        inv.alive = false;
+                        bullets.splice(j, 1);
+                        score += 20;
+                        scoreElement.innerText = score;
+                        break;
+                    }
+                }
+            }
+
+            // 모든 외계인 전멸 시 다음 스테이지 이동
+            if (aliveCount === 0 && invaders.length > 0) {
+                nextStage();
+            }
+        }
+
+        // 객체 그리기 시스템 (도형 기반 아케이드 스타일)
+        function drawPlayer() {
+            ctx.fillStyle = "#00ff00";
+            // 우주선 본체
+            ctx.fillRect(player.x, player.y + 5, player.width, player.height - 5);
+            // 우주선 포탑 부분
+            ctx.fillRect(player.x + player.width / 2 - 4, player.y, 8, 5);
+        }
+
+        function drawBullets() {
+            ctx.fillStyle = "#ffff00";
+            bullets.forEach(b => {
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+            });
+        }
+
+        function drawInvaders() {
+            invaders.forEach(inv => {
+                if (!inv.alive) return;
+                ctx.fillStyle = inv.color;
+                
+                // 외계인 본체 및 촉수/안테나 스타일 묘사
+                ctx.fillRect(inv.x, inv.y, inv.width, inv.height);
+                
+                // 눈 모양 표현 (검은색 픽셀 구멍)
+                ctx.fillStyle = "#000000";
+                ctx.fillRect(inv.x + 6, inv.y + 6, 5, 5);
+                ctx.fillRect(inv.x + inv.width - 11, inv.y + 6, 5, 5);
+            });
+        }
+
+        // 게임 오버 처리
+        function triggerGameOver() {
+            isGameOver = true;
+            overlayTitle.innerText = "GAME OVER";
+            overlayTitle.className = "game-over-text";
+            overlayScreen.style.display = "flex";
+        }
+    </script>
+</body>
+</html>
