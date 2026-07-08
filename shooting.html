@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>스페이스 인베이더 - 적 공격 추가 버전</title>
+    <title>평범한 슈팅게임</title>
     <style>
         body {
             background-color: #050505;
@@ -31,8 +31,40 @@
             display: flex;
             justify-content: space-between;
             font-size: 1.2rem;
-            margin-bottom: 10px;
+            margin-bottom: 5px;
             font-weight: bold;
+        }
+
+        #lives-display {
+            color: #00ff00;
+            letter-spacing: 3px;
+        }
+
+        #boss-hp-container {
+            width: 600px;
+            height: 20px;
+            background-color: #222;
+            border: 2px solid #ff3333;
+            margin-bottom: 10px;
+            visibility: hidden;
+            position: relative;
+        }
+
+        #boss-hp-bar {
+            width: 100%;
+            height: 100%;
+            background-color: #ff3333;
+            transition: width 0.1s ease-out;
+        }
+
+        #boss-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            top: 2px;
         }
 
         #game-container {
@@ -91,17 +123,23 @@
             font-size: 0.9rem;
             color: #888;
             text-align: center;
+            line-height: 1.4;
         }
     </style>
 </head>
 <body>
 
-    <h1>SPACE INVADERS</h1>
+    <h1>평범한 슈팅게임</h1>
     
     <div id="ui-container">
         <div>SCORE: <span id="score">0</span></div>
         <div>STAGE: <span id="stage">1</span></div>
-        <div>LIVES: <span id="lives">3</span></div>
+        <div>LIVES: <span id="lives-display"></span></div>
+    </div>
+
+    <div id="boss-hp-container">
+        <div id="boss-hp-bar"></div>
+        <div id="boss-text">WARNING: BOSS APPEARED</div>
     </div>
 
     <div id="game-container">
@@ -113,7 +151,8 @@
     </div>
 
     <div id="controls-guide">
-        [← / →] 또는 [A / D] : 이동 | [Spacebar] : 미사일 발사 (피격 시 무적 시간 1초)
+        [← / →] 또는 [A / D] : 이동 | [Spacebar] : 미사일 발사 (피격 시 무적 1초)<br>
+        <strong>[Shift 누르고 있기] : 저속 모드 (정밀 회피)</strong>
     </div>
 
     <script>
@@ -121,35 +160,40 @@
         const ctx = canvas.getContext("2d");
         const scoreElement = document.getElementById("score");
         const stageElement = document.getElementById("stage");
-        const livesElement = document.getElementById("lives");
+        const livesDisplay = document.getElementById("lives-display");
+        const bossHpContainer = document.getElementById("boss-hp-container");
+        const bossHpBar = document.getElementById("boss-hp-bar");
         const overlayScreen = document.getElementById("overlay-screen");
         const overlayTitle = document.getElementById("overlay-title");
 
-        // 게임 상태 관리
+        // 게임 기본 설정
         let score = 0;
         let stage = 1;
         let lives = 3;
+        const maxLives = 3; // 목숨 최대 한도 상한선
         let isGameOver = false;
 
-        // 플레이어 (우주선)
+        // 플레이어 설정 (이동 속도 변수 분리)
         const player = {
             x: canvas.width / 2 - 20,
             y: canvas.height - 40,
             width: 40,
             height: 20,
-            speed: 6,
+            normalSpeed: 6,    // 일반 속도
+            slowSpeed: 3,      // 저속 모드 속도
             isMovingLeft: false,
             isMovingRight: false,
-            isInvincible: false,  // 피격 후 무적 상태 여부
-            invincibleTimer: 0    // 무적 시간 타이머
+            isSlowMode: false, // Shift 키 입력 여부
+            isInvincible: false,
+            invincibleTimer: 0
         };
 
         // 투사체 및 적 배열
         let playerBullets = [];
-        let enemyBullets = [];
+        let enemyBullets = []; 
         let invaders = [];
 
-        // 외계인 패턴 설정
+        // 일반 외계인 설정
         const invaderRows = 4;
         const invaderCols = 8;
         const invaderWidth = 35;
@@ -161,12 +205,28 @@
         let invaderDirection = 1; 
         let invaderSpeed = 1;
         let invaderDropDistance = 15;
-        let enemyShootProbability = 0.005; // 적이 미사일을 쏠 확률 (기본 스테이지 기준)
+        let enemyShootProbability = 0.005;
 
-        // 키보드 핸들러
+        // 보스(Boss) 객체 정의
+        const boss = {
+            x: 0,
+            y: 0,
+            width: 60,   
+            height: 40,
+            speed: 2.5,  
+            direction: 1,
+            active: false,
+            hp: 10,       // 기본 체력 10으로 하향 조정
+            maxHp: 10,
+            shootCooldown: 0,
+            patternTimer: 0
+        };
+
+        // 키보드 제어 이벤트 핸들러
         document.addEventListener("keydown", (e) => {
             if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") player.isMovingLeft = true;
             if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") player.isMovingRight = true;
+            if (e.key === "Shift") player.isSlowMode = true; // 저속 모드 활성화
             if (e.key === " " || e.code === "Space") {
                 e.preventDefault();
                 firePlayerBullet();
@@ -176,9 +236,10 @@
         document.addEventListener("keyup", (e) => {
             if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") player.isMovingLeft = false;
             if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") player.isMovingRight = false;
+            if (e.key === "Shift") player.isSlowMode = false; // 저속 모드 해제
         });
 
-        // 초기 시작 호출
+        // 최초 실행
         initGame();
 
         function initGame() {
@@ -191,13 +252,16 @@
             
             scoreElement.innerText = score;
             stageElement.innerText = stage;
-            livesElement.innerText = lives;
+            updateLivesUI();
             overlayScreen.style.display = "none";
+            bossHpContainer.style.visibility = "hidden";
 
             playerBullets = [];
             enemyBullets = [];
             player.isInvincible = false;
+            player.isSlowMode = false;
             player.x = canvas.width / 2 - 20;
+            boss.active = false;
 
             createInvaders();
             
@@ -209,25 +273,60 @@
             initGame();
         }
 
+        function updateLivesUI() {
+            let livesText = "";
+            for (let i = 0; i < lives; i++) {
+                livesText += "▲ ";
+            }
+            livesDisplay.innerText = livesText || "NONE";
+        }
+
+        // 보스 격파 시 다음 라운드 진입 로직
         function nextStage() {
+            // 보스 보상: 목숨 +1 지급 (최대 3개 제한)
+            if (lives < maxLives) {
+                lives++;
+                updateLivesUI();
+            }
+
             stage++;
             stageElement.innerText = stage;
             invaderSpeed = 1 + (stage * 0.2); 
-            enemyShootProbability = 0.005 + (stage * 0.002); // 스테이지가 오를수록 공격 빈도 증가
+            enemyShootProbability = 0.005 + (stage * 0.001);
             playerBullets = [];
             enemyBullets = [];
+            boss.active = false;
+            bossHpContainer.style.visibility = "hidden";
             createInvaders();
+        }
+
+        function spawnBoss() {
+            boss.active = true;
+            // 라운드에 따라 체력 2씩 점진적 증가 (1라운드:10, 2라운드:12, 3라운드:14...)
+            boss.maxHp = 10 + (stage - 1) * 2; 
+            boss.hp = boss.maxHp;
+            boss.x = canvas.width / 2 - boss.width / 2;
+            boss.y = 60;
+            boss.speed = 2.5 + (stage * 0.3); 
+            boss.shootCooldown = 0;
+            boss.patternTimer = 0;
+            
+            bossHpContainer.style.visibility = "visible";
+            updateBossHpBar();
+        }
+
+        function updateBossHpBar() {
+            const hpPercentage = (boss.hp / boss.maxHp) * 100;
+            bossHpBar.style.width = hpPercentage + "%";
         }
 
         function createInvaders() {
             invaders = [];
             for (let r = 0; r < invaderRows; r++) {
                 for (let c = 0; c < invaderCols; c++) {
-                    const invaderX = c * (invaderWidth + invaderPadding) + invaderOffsetLeft;
-                    const invaderY = r * (invaderHeight + invaderPadding) + invaderOffsetTop;
                     invaders.push({
-                        x: invaderX,
-                        y: invaderY,
+                        x: c * (invaderWidth + invaderPadding) + invaderOffsetLeft,
+                        y: r * (invaderHeight + invaderPadding) + invaderOffsetTop,
                         width: invaderWidth,
                         height: invaderHeight,
                         alive: true,
@@ -239,7 +338,7 @@
 
         function firePlayerBullet() {
             if (isGameOver) return;
-            if (playerBullets.length < 3) { // 플레이어 화면 내 미사일 최대 3개 제한
+            if (playerBullets.length < 4) { 
                 playerBullets.push({
                     x: player.x + player.width / 2 - 2,
                     y: player.y,
@@ -250,80 +349,135 @@
             }
         }
 
-        // 외계인의 반격 로직
         function enemyShoot() {
+            if (boss.active) return; 
+
             invaders.forEach(invader => {
                 if (!invader.alive) return;
-
-                // 확률적으로 미사일 발사
                 if (Math.random() < enemyShootProbability) {
                     enemyBullets.push({
                         x: invader.x + invader.width / 2 - 2,
                         y: invader.y + invader.height,
+                        vx: 0, 
+                        vy: 4 + (stage * 0.3),
                         width: 4,
                         height: 12,
-                        speed: 4 + (stage * 0.5) // 스테이지가 올라가면 미사일 속도도 약간 증가
+                        isBarrage: false
                     });
                 }
             });
         }
 
-        // 루프 업데이트
+        function bossShoot() {
+            if (!boss.active) return;
+
+            boss.shootCooldown++;
+            boss.patternTimer++;
+
+            // 패턴 1: 방사형 네온 탄막
+            if (boss.shootCooldown >= 35) {
+                boss.shootCooldown = 0;
+                
+                const baseAngle = Math.PI / 2; 
+                const angles = [baseAngle - 0.6, baseAngle - 0.3, baseAngle, baseAngle + 0.3, baseAngle + 0.6];
+                
+                angles.forEach(angle => {
+                    const bSpeed = 4.5; 
+                    enemyBullets.push({
+                        x: boss.x + boss.width / 2,
+                        y: boss.y + boss.height,
+                        vx: Math.cos(angle) * bSpeed,
+                        vy: Math.sin(angle) * bSpeed,
+                        width: 6, 
+                        height: 6,
+                        isBarrage: true
+                    });
+                });
+            }
+
+            // 패턴 2: 플레이어 방향 3갈래 저격 탄막
+            if (boss.patternTimer >= 110) { 
+                boss.patternTimer = 0;
+
+                const targetX = player.x + player.width / 2;
+                const targetY = player.y;
+                const centerAngle = Math.atan2(targetY - (boss.y + boss.height), targetX - (boss.x + boss.width / 2));
+                
+                const targetAngles = [centerAngle - 0.15, centerAngle, centerAngle + 0.15];
+
+                targetAngles.forEach(angle => {
+                    const tSpeed = 5.5; 
+                    enemyBullets.push({
+                        x: boss.x + boss.width / 2,
+                        y: boss.y + boss.height,
+                        vx: Math.cos(angle) * tSpeed,
+                        vy: Math.sin(angle) * tSpeed,
+                        width: 5,
+                        height: 10,
+                        isBarrage: true
+                    });
+                });
+            }
+        }
+
         function gameLoop() {
             if (isGameOver) return;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // 데이터 갱신
             updatePlayer();
             updatePlayerBullets();
             updateEnemyBullets();
-            updateInvaders();
-            enemyShoot();
+            
+            if (boss.active) {
+                updateBoss();
+                bossShoot();
+            } else {
+                updateInvaders();
+                enemyShoot();
+            }
 
-            // 충돌 체크
             checkCollisions();
 
-            // 오브젝트 렌더링
             drawPlayer();
             drawPlayerBullets();
             drawEnemyBullets();
-            drawInvaders();
+            
+            if (boss.active) {
+                drawBoss();
+            } else {
+                drawInvaders();
+            }
 
             requestAnimationFrame(gameLoop);
         }
 
         function updatePlayer() {
-            if (player.isMovingLeft && player.x > 0) {
-                player.x -= player.speed;
-            }
-            if (player.isMovingRight && player.x < canvas.width - player.width) {
-                player.x += player.speed;
-            }
+            // 저속 상태 모드 활성화 여부에 따른 이동속도 차등 설정
+            const currentSpeed = player.isSlowMode ? player.slowSpeed : player.normalSpeed;
 
-            // 무적 타이머 업데이트
+            if (player.isMovingLeft && player.x > 0) player.x -= currentSpeed;
+            if (player.isMovingRight && player.x < canvas.width - player.width) player.x += currentSpeed;
+
             if (player.isInvincible) {
                 player.invincibleTimer--;
-                if (player.invincibleTimer <= 0) {
-                    player.isInvincible = false;
-                }
+                if (player.invincibleTimer <= 0) player.isInvincible = false;
             }
         }
 
         function updatePlayerBullets() {
             for (let i = playerBullets.length - 1; i >= 0; i--) {
                 playerBullets[i].y -= playerBullets[i].speed;
-                if (playerBullets[i].y < 0) {
-                    playerBullets.splice(i, 1);
-                }
+                if (playerBullets[i].y < 0) playerBullets.splice(i, 1);
             }
         }
 
         function updateEnemyBullets() {
             for (let i = enemyBullets.length - 1; i >= 0; i--) {
-                enemyBullets[i].y += enemyBullets[i].speed;
-                // 바닥 영역을 벗어나면 삭제
-                if (enemyBullets[i].y > canvas.height) {
+                enemyBullets[i].x += enemyBullets[i].vx;
+                enemyBullets[i].y += enemyBullets[i].vy;
+
+                if (enemyBullets[i].y > canvas.height || enemyBullets[i].x < 0 || enemyBullets[i].x > canvas.width) {
                     enemyBullets.splice(i, 1);
                 }
             }
@@ -331,18 +485,15 @@
 
         function updateInvaders() {
             let hitWall = false;
+            let aliveCount = 0;
 
             invaders.forEach(invader => {
                 if (!invader.alive) return;
+                aliveCount++;
                 invader.x += invaderSpeed * invaderDirection;
 
-                if (invader.x + invader.width >= canvas.width || invader.x <= 0) {
-                    hitWall = true;
-                }
-
-                if (invader.y + invader.height >= player.y) {
-                    triggerGameOver();
-                }
+                if (invader.x + invader.width >= canvas.width || invader.x <= 0) hitWall = true;
+                if (invader.y + invader.height >= player.y) triggerGameOver();
             });
 
             if (hitWall) {
@@ -351,39 +502,58 @@
                     if (invader.alive) invader.y += invaderDropDistance;
                 });
             }
+
+            if (aliveCount === 0 && invaders.length > 0 && !boss.active) {
+                spawnBoss();
+            }
+        }
+
+        function updateBoss() {
+            boss.x += boss.speed * boss.direction;
+            if (boss.x + boss.width >= canvas.width - 20 || boss.x <= 20) {
+                boss.direction *= -1;
+            }
         }
 
         function checkCollisions() {
-            let aliveCount = 0;
+            for (let j = playerBullets.length - 1; j >= 0; j--) {
+                const b = playerBullets[j];
 
-            // 1. 플레이어 미사일 -> 외계인 충돌 판정
-            for (let i = 0; i < invaders.length; i++) {
-                const inv = invaders[i];
-                if (!inv.alive) continue;
-                aliveCount++;
-
-                for (let j = playerBullets.length - 1; j >= 0; j--) {
-                    const b = playerBullets[j];
-
-                    if (b.x > inv.x && b.x < inv.x + inv.width &&
-                        b.y > inv.y && b.y < inv.y + inv.height) {
+                if (boss.active) {
+                    if (b.x > boss.x && b.x < boss.x + boss.width &&
+                        b.y > boss.y && b.y < boss.y + boss.height) {
                         
-                        inv.alive = false;
                         playerBullets.splice(j, 1);
-                        score += 20;
+                        boss.hp--;
+                        score += 50;
                         scoreElement.innerText = score;
-                        break;
+                        updateBossHpBar();
+
+                        if (boss.hp <= 0) {
+                            score += 1000; 
+                            scoreElement.innerText = score;
+                            nextStage(); // 이 내부에서 목숨 회복 연산 처리됨
+                        }
+                        continue;
+                    }
+                } else {
+                    for (let i = 0; i < invaders.length; i++) {
+                        const inv = invaders[i];
+                        if (!inv.alive) continue;
+
+                        if (b.x > inv.x && b.x < inv.x + inv.width &&
+                            b.y > inv.y && b.y < inv.y + inv.height) {
+                            
+                            inv.alive = false;
+                            playerBullets.splice(j, 1);
+                            score += 20;
+                            scoreElement.innerText = score;
+                            break;
+                        }
                     }
                 }
             }
 
-            // 모든 적 격추 시 다음 스테이지 이동
-            if (aliveCount === 0 && invaders.length > 0) {
-                nextStage();
-                return;
-            }
-
-            // 2. 외계인 미사일 -> 플레이어 충돌 판정
             if (!player.isInvincible) {
                 for (let i = enemyBullets.length - 1; i >= 0; i--) {
                     const eb = enemyBullets[i];
@@ -393,12 +563,11 @@
                         
                         enemyBullets.splice(i, 1);
                         lives--;
-                        livesElement.innerText = lives;
+                        updateLivesUI();
 
                         if (lives <= 0) {
                             triggerGameOver();
                         } else {
-                            // 피격 시 1초 동안 무적 (60프레임 기준)
                             player.isInvincible = true;
                             player.invincibleTimer = 60; 
                         }
@@ -409,26 +578,36 @@
         }
 
         function drawPlayer() {
-            // 무적 상태일 때는 깜빡거리는 연출 부여
-            if (player.isInvincible && Math.floor(player.invincibleTimer / 5) % 2 === 0) {
-                return;
-            }
+            if (player.isInvincible && Math.floor(player.invincibleTimer / 5) % 2 === 0) return;
             ctx.fillStyle = "#00ff00";
             ctx.fillRect(player.x, player.y + 5, player.width, player.height - 5);
             ctx.fillRect(player.x + player.width / 2 - 4, player.y, 8, 5);
+
+            // 저속(정밀) 모드 구동 시 유저 인지를 위해 중앙에 조그마한 점 피격 판정 코어 노출 예외 연출
+            if (player.isSlowMode) {
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(player.x + player.width / 2, player.y + player.height / 2 + 2, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
         function drawPlayerBullets() {
             ctx.fillStyle = "#ffff00";
-            playerBullets.forEach(b => {
-                ctx.fillRect(b.x, b.y, b.width, b.height);
-            });
+            playerBullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
         }
 
         function drawEnemyBullets() {
-            ctx.fillStyle = "#ff3333"; // 적 투사체는 빨간색으로 시각적 대비
             enemyBullets.forEach(eb => {
-                ctx.fillRect(eb.x, eb.y, eb.width, eb.height);
+                if (eb.isBarrage) {
+                    ctx.fillStyle = "#ffaa00"; 
+                    ctx.beginPath();
+                    ctx.arc(eb.x, eb.y, eb.width / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.fillStyle = "#ff3333"; 
+                    ctx.fillRect(eb.x, eb.y, eb.width, eb.height);
+                }
             });
         }
 
@@ -438,11 +617,23 @@
                 ctx.fillStyle = inv.color;
                 ctx.fillRect(inv.x, inv.y, inv.width, inv.height);
                 
-                // 눈 그래픽 내부 구현
                 ctx.fillStyle = "#000000";
                 ctx.fillRect(inv.x + 6, inv.y + 6, 5, 5);
                 ctx.fillRect(inv.x + inv.width - 11, inv.y + 6, 5, 5);
             });
+        }
+
+        function drawBoss() {
+            ctx.fillStyle = "#ff0055";
+            ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(boss.x + 12, boss.y + 10, 10, 10);
+            ctx.fillRect(boss.x + boss.width - 22, boss.y + 10, 10, 10);
+            
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(boss.x + 15, boss.y + 13, 5, 5);
+            ctx.fillRect(boss.x + boss.width - 19, boss.y + 13, 5, 5);
         }
 
         function triggerGameOver() {
