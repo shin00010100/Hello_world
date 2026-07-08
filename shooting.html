@@ -174,12 +174,12 @@
         const maxLives = 3; 
         let isGameOver = false;
 
-        // 플레이어 설정
+        // 플레이어 설정 (가로폭 감소 및 정밀화)
         const player = {
-            x: canvas.width / 2 - 20,
+            x: canvas.width / 2 - 13,
             y: canvas.height - 40,
-            width: 40,
-            height: 20,
+            width: 26,         // 가로 길이를 40에서 26으로 줄임
+            height: 26,        // 정사각형에 가까운 밸런스로 변경
             normalSpeed: 6,    
             slowSpeed: 2.5,    
             isMovingLeft: false,
@@ -195,7 +195,7 @@
         let enemyBullets = []; 
         let invaders = [];
 
-        // 일반 외계인 설정 (난이도 상향)
+        // 일반 외계인 설정
         const invaderRows = 4;
         const invaderCols = 8;
         const invaderWidth = 35;
@@ -207,7 +207,7 @@
         let invaderDirection = 1; 
         let invaderSpeed = 1;
         let invaderDropDistance = 15;
-        let enemyShootProbability = 0.009; // 잡몹 사격 확률 증가 (기존 0.005)
+        let enemyShootProbability = 0.009; 
 
         // 보스(Boss) 객체 정의
         const boss = {
@@ -218,7 +218,7 @@
             speed: 2.2,  
             direction: 1,
             active: false,
-            hp: 12,       // 초기 체력 증가 (기존 10 -> 12)
+            hp: 12,       
             maxHp: 12,
             shootCooldown: 0,
             patternTimer: 0,
@@ -264,7 +264,7 @@
             enemyBullets = [];
             player.isInvincible = false;
             player.isSlowMode = false;
-            player.x = canvas.width / 2 - 20;
+            player.x = canvas.width / 2 - player.width / 2;
             boss.active = false;
 
             createInvaders();
@@ -293,8 +293,8 @@
 
             stage++;
             stageElement.innerText = stage;
-            invaderSpeed = 1 + (stage * 0.25); // 스테이지별 잡몹 이동속도 증가폭 상향
-            enemyShootProbability = 0.009 + (stage * 0.0015); // 스테이지별 잡몹 사격률 증가폭 상향
+            invaderSpeed = 1 + (stage * 0.25); 
+            enemyShootProbability = 0.009 + (stage * 0.0015); 
             playerBullets = [];
             enemyBullets = [];
             boss.active = false;
@@ -305,7 +305,7 @@
         function spawnBoss() {
             boss.active = true;
             boss.phase = 1;
-            boss.maxHp = 12 + (stage - 1) * 2; // 초기체력 12 기준 성장 공식 적용
+            boss.maxHp = 12 + (stage - 1) * 2; 
             boss.hp = boss.maxHp;
             boss.x = canvas.width / 2 - boss.width / 2;
             boss.y = 70;
@@ -369,7 +369,7 @@
                         x: invader.x + invader.width / 2,
                         y: invader.y + invader.height,
                         vx: 0, 
-                        vy: 4.5 + (stage * 0.35), // 잡몹 탄속 약간 상향 (기존 4.0)
+                        vy: 4.5 + (stage * 0.35), 
                         radius: 3, 
                         color: "#ff3333",
                         type: "normal"
@@ -384,7 +384,6 @@
             boss.shootCooldown++;
             boss.patternTimer++;
 
-            // [1페이즈 탄막] 6방향 회전 방사탄 + 플레이어 유도 조준탄
             if (boss.phase === 1) {
                 if (boss.shootCooldown >= 35) {
                     boss.shootCooldown = 0;
@@ -422,7 +421,6 @@
                     });
                 }
             } 
-            // [2페이즈 탄막] 천장 무작위 낙하 거대 빙결탄 + 부채꼴 탄막 숲
             else if (boss.phase === 2) {
                 if (boss.shootCooldown >= 25) {
                     boss.shootCooldown = 0;
@@ -594,8 +592,9 @@
             }
 
             if (!player.isInvincible) {
+                // 작아진 크기에 맞춰 코어의 좌표 중심 세부 보정
                 const coreX = player.x + player.width / 2;
-                const coreY = player.y + player.height / 2 + 2;
+                const coreY = player.y + player.height / 2;
 
                 for (let i = enemyBullets.length - 1; i >= 0; i--) {
                     const eb = enemyBullets[i];
@@ -623,20 +622,34 @@
         function drawPlayer() {
             if (player.isInvincible && Math.floor(player.invincibleTimer / 5) % 2 === 0) return;
             
-            ctx.fillStyle = "#00ff00";
-            ctx.fillRect(player.x, player.y + 5, player.width, player.height - 5);
-            ctx.fillRect(player.x + player.width / 2 - 4, player.y, 8, 5);
+            const centerX = player.x + player.width / 2;
+            const centerY = player.y + player.height / 2;
 
+            // [네온 크로스 파이터 리모델링 디자인]
+            ctx.fillStyle = "#00ff00";
+            
+            // 1. 세로 본체 포신 (좁고 날카롭게)
+            ctx.fillRect(centerX - 4, player.y, 8, player.height);
+            // 2. 가로 날개 (가로폭을 줄인 26px 한도 내에서 십자 형태로 교차)
+            ctx.fillRect(player.x, centerY - 3, player.width, 6);
+            // 3. 윙팁 포인트 후미등
+            ctx.fillStyle = "#00ccff";
+            ctx.fillRect(player.x, centerY + 5, 3, 3);
+            ctx.fillRect(player.x + player.width - 3, centerY + 5, 3, 3);
+
+            // 저속(Shift) 모드 작동 시 가이드 서클 및 코어 강조 연출
             if (player.isSlowMode) {
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+                ctx.lineWidth = 1;
                 ctx.beginPath();
-                ctx.arc(player.x + player.width / 2, player.y + player.height / 2 + 2, 7, 0, Math.PI * 2);
+                ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
                 ctx.stroke();
             }
             
+            // 중앙 피격 판정 코어 포인트 드로우
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
-            ctx.arc(player.x + player.width / 2, player.y + player.height / 2 + 2, player.coreRadius, 0, Math.PI * 2);
+            ctx.arc(centerX, centerY, player.coreRadius, 0, Math.PI * 2);
             ctx.fill();
         }
 
